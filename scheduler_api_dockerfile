@@ -1,0 +1,15 @@
+FROM golang:1.23
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+
+RUN go mod download
+
+COPY pkg/ ./pkg/
+COPY cmd/scheduler-api/main.go .
+
+RUN go build -o scheduler-api main.go
+RUN chmod +x ./scheduler-api
+
+CMD ["./scheduler-api", "--ring-leader-port=:8080"]
