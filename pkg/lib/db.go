@@ -13,6 +13,7 @@ func GetDBConnectionPool() (*pgxpool.Pool, error) {
 	dbName := os.Getenv("POSTGRES_DB")
 	dbUser := os.Getenv("POSTGRES_USER")
 	dbPassword := os.Getenv("POSTGRES_PASSWORD")
+	dbHost := os.Getenv("POSTGRES_HOST")
 
 	if dbName == "" {
 		dbName = "postgres"
@@ -22,8 +23,12 @@ func GetDBConnectionPool() (*pgxpool.Pool, error) {
 		dbUser = "postgres"
 	}
 
+	if dbHost == "" {
+		dbHost = "postgres"
+	}
+
 	postgresDBURL := fmt.Sprintf(
-		"postgres://%s:%s@postgres:5432/%s", dbUser, dbPassword, dbName,
+		"postgres://%s:%s@%s:5432/%s", dbUser, dbPassword, dbHost, dbName,
 	)
 
 	return Retry(func() (*pgxpool.Pool, error) {
