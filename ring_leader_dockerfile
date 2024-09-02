@@ -16,6 +16,7 @@ RUN go mod download
 
 COPY pkg/ ./pkg/
 COPY cmd/ring-leader/main.go .
+COPY .env .
 
 RUN chmod +x ./pkg/grpc-api/build.sh
 RUN ./pkg/grpc-api/build.sh
