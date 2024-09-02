@@ -1,4 +1,4 @@
-package schedulerapi
+package handlers
 
 import (
 	"context"

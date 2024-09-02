@@ -1,12 +1,19 @@
 package schedulerapi
 
 import (
+	"fmt"
 	"log"
 	"time"
 
 	ginzap "github.com/gin-contrib/zap"
 	"github.com/gin-gonic/gin"
 	"github.com/kolharsam/task-scheduler/pkg/lib"
+	constants "github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
+	"github.com/kolharsam/task-scheduler/pkg/scheduler-api/handlers"
+)
+
+var (
+	taskGetRoute string = fmt.Sprintf("%s/:task_id", constants.TaskRoute)
 )
 
 func Run(serverPort string) {
@@ -28,11 +35,12 @@ func Run(serverPort string) {
 	router.Use(ginzap.Ginzap(logger, time.RFC3339, true))
 	router.Use(ginzap.RecoveryWithZap(logger, true))
 
-	apiCtx := NewAPIContext(db, logger)
+	apiCtx := handlers.NewAPIContext(db, logger)
 
-	router.POST(task_route, apiCtx.taskPostHandler)
-	router.GET(task_route, apiCtx.taskGetHandler)
-	router.GET(health_route, apiCtx.statusHandler)
+	router.POST(constants.TaskRoute, apiCtx.TaskPostHandler)
+	router.GET(taskGetRoute, apiCtx.TaskGetHandler)
+	router.GET(constants.HealthRoute, apiCtx.StatusHandler)
+	router.GET(constants.AllTaskEventsRoute, apiCtx.GetAllTaskEventsHandler)
 
 	log.Default().Printf("starting scheuler-api on port[%s]...", serverPort)
 	router.Run(serverPort)

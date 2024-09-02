@@ -1,25 +1,25 @@
-package schedulerapi
+package handlers
 
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/kolharsam/task-scheduler/pkg/lib"
 )
 
-func (api *APIContext) statusHandler(c *gin.Context) {
+func (api *APIContext) StatusHandler(c *gin.Context) {
 	err := api.db.Ping(context.Background())
 	if err != nil {
-		c.Errors = append(c.Errors, &gin.Error{
-			Err: fmt.Errorf("failed to reach database [%v]", err),
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Errorf("failed to reach database [%v]", err.Error()),
 		})
 		return
 	}
 
 	// TODO: do similar check with ring-leader as well to update status of the whole system
 
-	c.JSON(200, lib.JSON{
+	c.JSON(http.StatusOK, gin.H{
 		"status": "OK",
 	})
 }

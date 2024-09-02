@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-type JSON map[string]interface{}
-
 func MakePortString(port string) string {
 	return fmt.Sprintf(":%s", port)
 }
@@ -29,4 +27,14 @@ func Retry[T any](f Function[T], sleepTime time.Duration, maxRetries int) (T, er
 	}
 
 	return result, err
+}
+
+func Includes[T comparable](list []T, elem T) bool {
+	for i := 0; i < len(list); i++ {
+		if list[i] == elem {
+			return true
+		}
+	}
+
+	return false
 }
