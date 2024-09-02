@@ -1,6 +1,8 @@
 package common
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -10,9 +12,9 @@ type Task struct {
 	Command string    `json:"command"`
 	Status  string    `json:"status"`
 	// NOTE: Status is one of 'CREATED' | 'RUNNING' | 'COMPLETED'
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
-	CompletedAt *string `json:"completed_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at"`
 }
 
 type TaskStatusUpdateLog struct {
@@ -20,12 +22,12 @@ type TaskStatusUpdateLog struct {
 	TaskID             uuid.UUID `json:"task_id"`
 	Status             string    `json:"status"`
 	// NOTE: Status is one of
-	// 'CREATED',
 	// 'INITIATED',
 	// 'RUNNING',
 	// 'SUCCESS',
 	// 'FAILED'
-	Data      gin.H  `json:"data"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	StatusOrder int64     `json:"-"`
+	Data        *gin.H    `json:"data"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

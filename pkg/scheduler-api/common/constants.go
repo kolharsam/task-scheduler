@@ -2,8 +2,8 @@ package common
 
 // ROUTE constants
 var (
-	TaskRoute = "/task"
+	TaskRoute = "/v1/task"
 	// serves as status endpoint of service db and other infra pieces
-	HealthRoute        = "/healthz"
-	AllTaskEventsRoute = "/task/events/:task_id"
+	HealthRoute        = "/v1/healthz"
+	AllTaskEventsRoute = "/v1/events/:task_id"
 )

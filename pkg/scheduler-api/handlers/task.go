@@ -1,13 +1,14 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	queries "github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
-	types "github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
+	"github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
 )
 
 type AddTaskRequest struct {
@@ -17,16 +18,18 @@ type AddTaskRequest struct {
 func (api *APIContext) TaskPostHandler(c *gin.Context) {
 	var taskRequestBody AddTaskRequest
 	if err := c.ShouldBindJSON(&taskRequestBody); err != nil {
+		c.Errors = append(c.Errors, &gin.Error{Err: err})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	query := queries.INSERT_ONE_TASK
+	query := common.INSERT_ONE_TASK
 	args := pgx.NamedArgs{
 		"command": taskRequestBody.Command,
 	}
 	_, err := api.db.Exec(c.Request.Context(), query, args)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{})
+		c.Errors = append(c.Errors, &gin.Error{Err: err})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to insert task to db"})
 		return
 	}
 
@@ -37,11 +40,11 @@ func (api *APIContext) TaskPostHandler(c *gin.Context) {
 
 func (api *APIContext) TaskGetHandler(c *gin.Context) {
 	taskId := c.Param("task_id")
-	query := queries.GET_ALL_TASKS
+	query := common.GET_ALL_TASKS
 	args := pgx.NamedArgs{}
 
 	if taskId != "" {
-		query = queries.GET_ONE_TASK
+		query = common.GET_ONE_TASK
 		args = pgx.NamedArgs{
 			"taskId": taskId,
 		}
@@ -57,9 +60,10 @@ func (api *APIContext) TaskGetHandler(c *gin.Context) {
 		return
 	}
 
-	collectedRows, err := pgx.CollectRows(rows, pgx.RowToStructByName[types.Task])
+	collectedRows, err := pgx.CollectRows(rows, pgx.RowToStructByName[common.Task])
 
 	if err != nil {
+		c.Errors = append(c.Errors, &gin.Error{Err: err})
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": fmt.Errorf("failed to read rows[tasks] from db [%s]", err.Error()),
 		})
@@ -72,16 +76,19 @@ func (api *APIContext) TaskGetHandler(c *gin.Context) {
 }
 
 func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
-	taskId := c.Param("task_id")
+	taskIdStr := c.Param("task_id")
+	taskId, err := uuid.Parse(taskIdStr)
 
-	if taskId == "" {
+	if taskIdStr == "" || err != nil {
+		err = errors.New("task_id must be provided or an incorrect one has been provided")
+		c.Errors = append(c.Errors, &gin.Error{Err: err})
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": ":task_id must be provided",
+			"error": err.Error(),
 		})
 		return
 	}
 
-	rows, err := api.db.Query(c.Request.Context(), queries.GET_ALL_TASK_EVENTS, pgx.NamedArgs{
+	rows, err := api.db.Query(c.Request.Context(), common.GET_ALL_TASK_EVENTS, pgx.NamedArgs{
 		"taskId": taskId,
 	})
 
@@ -94,7 +101,7 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	}
 
 	collectedRows, err := pgx.CollectRows(
-		rows, pgx.RowToStructByName[types.TaskStatusUpdateLog],
+		rows, pgx.RowToStructByName[common.TaskStatusUpdateLog],
 	)
 
 	if err != nil {

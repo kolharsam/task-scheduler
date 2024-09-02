@@ -2,7 +2,6 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TYPE task_running_status AS ENUM(
-    'CREATED',
     'INITIATED',
     'RUNNING',
     'SUCCESS',
@@ -45,11 +44,10 @@ CREATE INDEX task_status_updates_log_index
 ALTER TABLE "public"."task_status_updates_log"
 ADD CONSTRAINT check_log_status_order
 CHECK (
-    (status = 'CREATED' AND status_order = 1) OR
-    (status = 'INITIATED' AND status_order = 2) OR
-    (status = 'RUNNING' AND status_order = 3) OR
-    (status = 'SUCCESS' AND status_order IN (4, 5)) OR
-    (status = 'FAILED' AND status_order IN (4, 5))
+    (status = 'INITIATED' AND status_order = 1) OR
+    (status = 'RUNNING' AND status_order = 2) OR
+    (status = 'SUCCESS' AND status_order IN (3, 4)) OR
+    (status = 'FAILED' AND status_order IN (3, 4))
 );
 
 ALTER TABLE "public"."task_status_updates_log" 
@@ -81,6 +79,7 @@ BEGIN
     ELSIF NEW.status IN ('SUCCESS', 'FAILED') THEN
         UPDATE tasks
         SET status = 'COMPLETED'
+        AND completed_at = now()
         WHERE task_id = NEW.task_id;
     END IF;
     RETURN NEW;

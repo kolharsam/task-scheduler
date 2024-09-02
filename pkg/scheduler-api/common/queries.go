@@ -13,5 +13,5 @@ const GET_ONE_TASK = `
 `
 
 const GET_ALL_TASK_EVENTS = `
-	SELECT * FROM "public"."task_status_updates_logs" where task_id = @taskId;
+	SELECT * FROM "public"."task_status_updates_log" where task_id = @taskId;
 `
