@@ -9,13 +9,12 @@ import (
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 )
 
-func NewServer() (*gin.Engine, error) {
+func Run(serverPort string) {
 	router := gin.Default()
 
 	logger, err := lib.GetLogger()
 	if err != nil {
 		log.Fatalf("there was issue while setting up the logger [%v]", err)
-		return nil, err
 	}
 
 	db, err := lib.GetDBConnectionPool()
@@ -35,5 +34,6 @@ func NewServer() (*gin.Engine, error) {
 	router.GET(task_route, apiCtx.taskGetHandler)
 	router.GET(health_route, apiCtx.statusHandler)
 
-	return router, nil
+	log.Default().Printf("starting scheuler-api on port[%s]...", serverPort)
+	router.Run(serverPort)
 }

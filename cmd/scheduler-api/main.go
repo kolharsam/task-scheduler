@@ -4,6 +4,7 @@ import (
 	"flag"
 	"log"
 
+	"github.com/joho/godotenv"
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 	schedulerapi "github.com/kolharsam/task-scheduler/pkg/scheduler-api"
 )
@@ -13,18 +14,12 @@ var (
 )
 
 func main() {
-	server, err := schedulerapi.NewServer()
+	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("failed to run scheduler-api service [%v]", err)
-		return
+		log.Fatalf("failed to set up environment variables [%v]", err)
 	}
 
-	portStr := lib.MakePortString(*port)
+	serverPort := lib.MakePortString(*port)
 
-	log.Default().Printf("starting scheuler-api on port[%s]...", *port)
-	err = server.Run(portStr)
-
-	if err != nil {
-		log.Fatalf("there was issue while starting the server [%v]", err)
-	}
+	schedulerapi.Run(serverPort)
 }

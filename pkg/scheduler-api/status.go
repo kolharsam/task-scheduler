@@ -2,35 +2,19 @@ package schedulerapi
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 )
 
 func (api *APIContext) statusHandler(c *gin.Context) {
-	var dbCheckRes string
-
-	queryRes, err := api.db.Query(context.Background(), "SELECT 1;")
+	err := api.db.Ping(context.Background())
 	if err != nil {
 		c.Errors = append(c.Errors, &gin.Error{
-			Err: errors.New("failed to reach database"),
+			Err: fmt.Errorf("failed to reach database [%v]", err),
 		})
 		return
-	}
-
-	err = queryRes.Scan(&dbCheckRes)
-	if err != nil {
-		c.Errors = append(c.Errors, &gin.Error{
-			Err: errors.New("failed to read data from database"),
-		})
-		return
-	}
-
-	if dbCheckRes != "" {
-		c.Errors = append(c.Errors, &gin.Error{
-			Err: errors.New("invalid response obtained from database"),
-		})
 	}
 
 	// TODO: do similar check with ring-leader as well to update status of the whole system

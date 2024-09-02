@@ -2,11 +2,10 @@ package lib
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
-	pgx "github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	pgxpool "github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,18 +22,11 @@ func GetDBConnectionPool() (*pgxpool.Pool, error) {
 		dbUser = "postgres"
 	}
 
-	ctx := context.Background()
+	postgresDBURL := fmt.Sprintf(
+		"postgres://%s:%s@postgres:5432/%s", dbUser, dbPassword, dbName,
+	)
 
 	return Retry(func() (*pgxpool.Pool, error) {
-		return pgxpool.NewWithConfig(ctx, &pgxpool.Config{
-			ConnConfig: &pgx.ConnConfig{
-				Config: pgconn.Config{
-					Host:     "localhost",
-					Database: dbName,
-					User:     dbUser,
-					Password: dbPassword,
-				},
-			},
-		})
+		return pgxpool.New(context.Background(), postgresDBURL)
 	}, 5*time.Second, 10)
 }
