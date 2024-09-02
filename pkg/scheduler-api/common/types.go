@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid"
+	"github.com/google/uuid"
 )
 
 type Task struct {

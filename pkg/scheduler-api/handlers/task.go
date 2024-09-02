@@ -78,8 +78,10 @@ func (api *APIContext) TaskGetHandler(c *gin.Context) {
 func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	taskIdStr := c.Param("task_id")
 	taskId, err := uuid.Parse(taskIdStr)
+	var query string
+	var args pgx.NamedArgs
 
-	if taskIdStr == "" || err != nil {
+	if err != nil && taskIdStr != "" {
 		err = errors.New("task_id must be provided or an incorrect one has been provided")
 		c.Errors = append(c.Errors, &gin.Error{Err: err})
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -88,9 +90,17 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 		return
 	}
 
-	rows, err := api.db.Query(c.Request.Context(), common.GET_ALL_TASK_EVENTS, pgx.NamedArgs{
-		"taskId": taskId,
-	})
+	if err != nil && taskIdStr == "" {
+		query = common.GET_ALL_EVENTS
+		args = pgx.NamedArgs{}
+	} else {
+		query = common.GET_ALL_EVENTS_ONE_TASK
+		args = pgx.NamedArgs{
+			"taskId": taskId.String(),
+		}
+	}
+
+	rows, err := api.db.Query(c.Request.Context(), query, args)
 
 	if err != nil {
 		c.Errors = append(c.Errors, &gin.Error{Err: err})

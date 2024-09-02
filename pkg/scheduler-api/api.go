@@ -13,11 +13,12 @@ import (
 )
 
 var (
-	taskGetRoute string = fmt.Sprintf("%s/:task_id", constants.TaskRoute)
+	taskGetRoute string = fmt.Sprintf("%s/*task_id", constants.TaskRoute)
 )
 
 func Run(serverPort string) {
 	router := gin.Default()
+	v1 := router.Group(constants.APIVersion)
 
 	logger, err := lib.GetLogger()
 	if err != nil {
@@ -37,10 +38,10 @@ func Run(serverPort string) {
 
 	apiCtx := handlers.NewAPIContext(db, logger)
 
-	router.POST(constants.TaskRoute, apiCtx.TaskPostHandler)
-	router.GET(taskGetRoute, apiCtx.TaskGetHandler)
-	router.GET(constants.HealthRoute, apiCtx.StatusHandler)
-	router.GET(constants.AllTaskEventsRoute, apiCtx.GetAllTaskEventsHandler)
+	v1.POST(constants.TaskRoute, apiCtx.TaskPostHandler)
+	v1.GET(taskGetRoute, apiCtx.TaskGetHandler)
+	v1.GET(constants.HealthRoute, apiCtx.StatusHandler)
+	v1.GET(constants.TaskEventsRoute, apiCtx.GetAllTaskEventsHandler)
 
 	log.Default().Printf("starting scheuler-api on port[%s]...", serverPort)
 	router.Run(serverPort)

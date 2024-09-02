@@ -1,9 +1,11 @@
 package common
 
+const APIVersion string = "v1"
+
 // ROUTE constants
 var (
-	TaskRoute = "/v1/task"
+	TaskRoute = "/task"
 	// serves as status endpoint of service db and other infra pieces
-	HealthRoute        = "/v1/healthz"
-	AllTaskEventsRoute = "/v1/events/:task_id"
+	HealthRoute     = "/healthz"
+	TaskEventsRoute = "/events/*task_id"
 )
