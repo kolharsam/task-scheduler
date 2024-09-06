@@ -5,7 +5,7 @@ const GET_ALL_TASKS = `
 `
 
 const INSERT_ONE_TASK = `
-	INSERT INTO "public"."tasks" (command) VALUES (@command)
+	INSERT INTO "public"."tasks" (command) VALUES (@command) RETURNING task_id;
 `
 
 const GET_ONE_TASK = `

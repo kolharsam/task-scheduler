@@ -26,24 +26,29 @@ func (api *APIContext) TaskPostHandler(c *gin.Context) {
 	args := pgx.NamedArgs{
 		"command": taskRequestBody.Command,
 	}
-	_, err := api.db.Exec(c.Request.Context(), query, args)
+
+	var field uuid.UUID
+	err := api.db.QueryRow(c.Request.Context(), query, args).Scan(&field)
 	if err != nil {
 		c.Errors = append(c.Errors, &gin.Error{Err: err})
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to insert task to db"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to insert task to db", "err": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"data": "task created",
+		"data": gin.H{
+			"task_id": field.String(),
+		},
 	})
 }
 
 func (api *APIContext) TaskGetHandler(c *gin.Context) {
-	taskId := c.Param("task_id")
+	taskIdStr := c.Param("task_id")
+	taskId, err := uuid.Parse(taskIdStr)
 	query := common.GET_ALL_TASKS
 	args := pgx.NamedArgs{}
 
-	if taskId != "" {
+	if taskIdStr != "" && err == nil {
 		query = common.GET_ONE_TASK
 		args = pgx.NamedArgs{
 			"taskId": taskId,
