@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"strconv"
@@ -12,16 +11,10 @@ import (
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 	"github.com/kolharsam/task-scheduler/pkg/worker"
 	"go.uber.org/zap"
-)
-
-var (
-	//--ring-leader-host ring-leader --ring-leader-port 8081
-	ringLeaderHost = flag.String("ring-leader-host", "ring_leader", "--ring-leader-host")
-	ringLeaderPort = flag.Int64("ring-leader-port", 8081, "--ring-leader-port 8081")
+	"google.golang.org/grpc"
 )
 
 func main() {
-	flag.Parse()
 	leaderHost := os.Getenv("RING_LEADER_HOST")
 	leaderPort := os.Getenv("RING_LEADER_PORT")
 	var port int64
@@ -37,22 +30,23 @@ func main() {
 		log.Fatalf("failed to set up logger for worker service %v", err)
 	}
 
-	connection, err := worker.SetupConnectionWithLeader(leaderHost, port)
+	var connection *grpc.ClientConn
 	maxRetries := 10
-	for err != nil {
-		if maxRetries <= 0 {
+	for i := 0; i < maxRetries; i++ {
+		connection, err = worker.SetupConnectionWithLeader(leaderHost, port)
+		if err == nil {
 			break
 		}
-		logger.Warn("failed to connect with ring-leader....reconnecting in some time",
+		logger.Warn("Failed to connect with ring-leader. Retrying...",
 			zap.Error(err),
-			zap.Int("retries_left", maxRetries),
+			zap.Int("attempt", i+1),
+			zap.Int("max_retries", maxRetries),
 		)
-		time.Sleep(time.Second * 5)
-		connection, err = worker.SetupConnectionWithLeader(*ringLeaderHost, *ringLeaderPort)
-		maxRetries--
+		time.Sleep(time.Second * 5) // Wait 5 seconds before retrying
 	}
+
 	if err != nil || connection == nil {
-		logger.Fatal("failed to connect with the ring-leader", zap.Error(err))
+		logger.Fatal("Failed to connect with the ring-leader after multiple attempts", zap.Error(err))
 	}
 
 	logger.Info("connected with ring-leader")

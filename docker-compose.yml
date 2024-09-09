@@ -137,13 +137,18 @@ services:
         condition: service_started
     networks:
       - task_network
+    # healthcheck:
+    #   test: ["CMD", "nc", "-z", "ring_leader", "8081"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
 
   worker:
     build:
       context: .
       dockerfile: worker_dockerfile
     environment:
-      WORKER_ADDRESS: worker
+      # WORKER_ADDRESS: worker
       RING_LEADER_HOST: ring_leader
       RING_LEADER_PORT: 8081
     depends_on:

@@ -23,7 +23,7 @@ type WorkerContext struct {
 
 func SetupConnectionWithLeader(host string, port int64) (*grpc.ClientConn, error) {
 	ringLeaderTarget := fmt.Sprintf("%s:%d", host, port)
-	conn, err := grpc.NewClient(ringLeaderTarget,
+	conn, err := grpc.Dial(ringLeaderTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to ring leader at %s: %w", ringLeaderTarget, err)
@@ -35,26 +35,31 @@ func (ws *WorkerContext) ManageHeartBeats() {
 	ticker := time.NewTicker(time.Second * 2)
 	defer ticker.Stop()
 
-	stream, err := ws.RingLeaderClient.HeartBeat(context.Background())
-	if err != nil {
-		ws.Logger.Sugar().Fatalf(
-			"failed to initiate communication with ring-leader via heartbeats [%v]",
-			err,
-		)
-	}
-
-	for range ticker.C {
-		err := stream.Send(&pb.HeartbeatRequest{
-			ServiceId:          ws.ServiceId.String(),
-			HeartBeatTimestamp: time.Now().Format(time.RFC3339),
-		})
-
+	for {
+		stream, err := ws.RingLeaderClient.HeartBeat(context.Background())
 		if err != nil {
-			ws.Logger.Fatal("failed to send heartbeat request to server")
+			ws.Logger.Error(
+				"Failed to initiate communication with ring-leader via heartbeats. Retrying...",
+				zap.Error(err),
+			)
+			time.Sleep(time.Second * 5) // Wait before retrying
+			continue
 		}
-	}
 
-	stream.CloseSend()
+		for range ticker.C {
+			err := stream.Send(&pb.HeartbeatRequest{
+				ServiceId:          ws.ServiceId.String(),
+				HeartBeatTimestamp: time.Now().Format(time.RFC3339),
+			})
+
+			if err != nil {
+				ws.Logger.Error("Failed to send heartbeat request to server", zap.Error(err))
+				break // Break the inner loop to reconnect
+			}
+		}
+
+		stream.CloseSend()
+	}
 }
 
 func (ws *WorkerContext) RunWorker() error {
