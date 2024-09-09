@@ -90,3 +90,19 @@ CREATE TRIGGER update_task_status_trigger
 AFTER INSERT ON "public"."task_status_updates_log"
 FOR EACH ROW
 EXECUTE FUNCTION update_task_status();
+
+CREATE TYPE worker_status AS ENUM(
+    'RUNNING',
+    'ERRORED'
+);
+
+CREATE TABLE live_workers(
+    worker_id SERIAL PRIMARY KEY,
+    service_id text not null,
+    "status" worker_status NOT NULL DEFAULT 'RUNNING',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()    
+);
+
+CREATE TRIGGER live_workers_updated_at BEFORE UPDATE ON "public"."live_workers"
+   FOR EACH ROW EXECUTE PROCEDURE record_updated_at();

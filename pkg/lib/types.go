@@ -1,4 +1,4 @@
-package common
+package lib
 
 import (
 	"time"
@@ -31,3 +31,21 @@ type TaskStatusUpdateLog struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+type LiveWorkers struct {
+	WorkerId  int8   `json:"worker_id"`
+	ServiceId string `json:"service_id"`
+	Status    string `json:"worker_status"`
+	// NOTE: Status is one of
+	// 'RUNNING',
+	// 'ERRORED',
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type WorkerStatus = string
+
+const (
+	RUNNING_WORKER_STATUS WorkerStatus = "RUNNING"
+	ERRORED_WORKER_STATUS WorkerStatus = "ERRORED"
+)

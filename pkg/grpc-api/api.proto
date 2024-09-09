@@ -3,27 +3,38 @@ syntax = "proto3";
 option go_package = "github.com/kolharsam/task-scheduler/pkg/grpc-api";
 
 service Scheduler {
-    // client to server
+    // client to server stream
     rpc HeartBeat (stream HeartbeatRequest) returns (HeartbeatResponse){}
-    // server to client
-    rpc RunTask(TaskRequest) returns (stream TaskResponse){}
+    // server to client stream
+    rpc RunTask(TaskReadyRequest) returns (stream TaskRequest){}
+    // client events to server
+    rpc ReadTaskUpdates(stream TaskUpdate) returns (TaskCompleteResponse){}
 }
+
+message TaskReadyRequest {
+    string timestamp = 2;
+    string serverId = 3;
+}
+
+message TaskUpdate {
+    string timestamp = 1;
+    string taskId = 2;
+    TaskState state = 3;
+    string errorDetails = 4;
+}
+
+message TaskCompleteResponse {
+    string timestamp = 1;
+}   
 
 message TaskRequest {
     string command = 2;
     string taskId = 1;
     string requestTime = 3;
-}
-
-message TaskResponse {
-    string taskId = 1;
-    TaskState taskState = 2;
-    string responseTime = 3;
-}   
+} 
 
 message HeartbeatRequest {
     string serviceId = 1;
-    int32 servicePort = 2;
     string heartBeatTimestamp = 3;
 };
 

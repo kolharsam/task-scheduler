@@ -1,6 +1,7 @@
 package schedulerapi
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 	constants "github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
 	"github.com/kolharsam/task-scheduler/pkg/scheduler-api/handlers"
+	"go.uber.org/zap"
 )
 
 var (
@@ -38,10 +40,34 @@ func Run(serverPort string) {
 
 	apiCtx := handlers.NewAPIContext(db, logger)
 
+	ctx := context.Background()
+	err = db.Ping(ctx)
+	maxRetries := 10
+
+	for err != nil {
+		if maxRetries <= 0 {
+			break
+		}
+		logger.Warn("failed to connect with database...retrying in 5 seconds", zap.Error(err))
+		time.Sleep(time.Second * 5)
+		err = db.Ping(ctx)
+		maxRetries--
+	}
+	if err != nil {
+		logger.Fatal("failed to set up an active connection with the database", zap.Error(err))
+	}
+
+	logger.Info("successfully connected with the database...")
+
+	err = handlers.TruncateWorkersTable(db)
+	if err != nil {
+		log.Fatalf("failure in starting up scheduler-api service %v", err)
+	}
+
 	v1.POST(constants.TaskRoute, apiCtx.TaskPostHandler)
 	v1.GET(taskGetRoute, apiCtx.TaskGetHandler)
-	v1.GET(constants.HealthRoute, apiCtx.StatusHandler)
 	v1.GET(constants.TaskEventsRoute, apiCtx.GetAllTaskEventsHandler)
+	v1.GET(constants.HealthRoute, apiCtx.StatusHandler)
 
 	log.Default().Printf("starting scheuler-api on port[%s]...", serverPort)
 	router.Run(serverPort)

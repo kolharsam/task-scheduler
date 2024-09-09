@@ -5,9 +5,6 @@ RUN apt-get update && apt-get install -y \
     golang-go \
     git
 
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
 WORKDIR /app
 
 COPY go.mod go.sum ./
@@ -18,10 +15,13 @@ COPY pkg/ ./pkg/
 COPY cmd/ring-leader/main.go .
 COPY .env .
 
-RUN chmod +x ./pkg/grpc-api/build.sh
-RUN ./pkg/grpc-api/build.sh
+# RUN chmod +x ./pkg/grpc-api/build.sh
+# RUN ./pkg/grpc-api/build.sh
+COPY Makefile .
+COPY grpc_gen.sh .
+RUN make grpc
 
 RUN go build -o ring-leader main.go
 RUN chmod +x ./ring-leader
 
-CMD ["./ring-leader", "--ring-leader-port=:8080"]
+CMD ["./ring-leader", "port=:12000"]

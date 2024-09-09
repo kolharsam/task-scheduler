@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kolharsam/task-scheduler/pkg/lib"
 	"github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
 )
 
@@ -65,7 +68,7 @@ func (api *APIContext) TaskGetHandler(c *gin.Context) {
 		return
 	}
 
-	collectedRows, err := pgx.CollectRows(rows, pgx.RowToStructByName[common.Task])
+	collectedRows, err := pgx.CollectRows(rows, pgx.RowToStructByName[lib.Task])
 
 	if err != nil {
 		c.Errors = append(c.Errors, &gin.Error{Err: err})
@@ -116,7 +119,7 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	}
 
 	collectedRows, err := pgx.CollectRows(
-		rows, pgx.RowToStructByName[common.TaskStatusUpdateLog],
+		rows, pgx.RowToStructByName[lib.TaskStatusUpdateLog],
 	)
 
 	if err != nil {
@@ -130,4 +133,12 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": collectedRows,
 	})
+}
+
+func TruncateWorkersTable(db *pgxpool.Pool) error {
+	_, err := db.Query(context.Background(), common.TRUNCATE_LIVE_WORKERS)
+	if err != nil {
+		return err
+	}
+	return nil
 }
