@@ -1,8 +1,11 @@
 module github.com/kolharsam/task-scheduler
 
-go 1.22.6
+go 1.23
+
+toolchain go1.23.1
 
 require (
+	github.com/elliotchance/orderedmap/v2 v2.4.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/joho/godotenv v1.5.1

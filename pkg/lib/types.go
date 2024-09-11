@@ -22,14 +22,13 @@ type TaskStatusUpdateLog struct {
 	TaskID             uuid.UUID `json:"task_id"`
 	Status             string    `json:"status"`
 	// NOTE: Status is one of
-	// 'INITIATED',
 	// 'RUNNING',
 	// 'SUCCESS',
 	// 'FAILED'
-	StatusOrder int64     `json:"-"`
-	Data        *gin.H    `json:"data"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Data      *gin.H    `json:"data"`
+	WorkerId  string    `json:"worker_id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type LiveWorkers struct {
@@ -39,6 +38,8 @@ type LiveWorkers struct {
 	// NOTE: Status is one of
 	// 'RUNNING',
 	// 'ERRORED',
+	Port      uint32    `json:"port"`
+	Host      string    `json:"host"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

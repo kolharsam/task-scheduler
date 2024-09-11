@@ -9,7 +9,7 @@ import (
 	pgxpool "github.com/jackc/pgx/v5/pgxpool"
 )
 
-func GetDBConnectionPool() (*pgxpool.Pool, error) {
+func GetDBConnectionString() string {
 	dbName := os.Getenv("POSTGRES_DB")
 	dbUser := os.Getenv("POSTGRES_USER")
 	dbPassword := os.Getenv("POSTGRES_PASSWORD")
@@ -25,18 +25,26 @@ func GetDBConnectionPool() (*pgxpool.Pool, error) {
 	}
 
 	if dbHost == "" {
-		dbHost = "postgres"
+		dbHost = "localhost"
 	}
 
 	if dbPort == "" {
 		dbPort = "5432"
 	}
 
-	postgresDBURL := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s", dbUser, dbPassword, dbHost, dbPort, dbName,
+	if dbPassword == "" {
+		dbPassword = "postgres"
+	}
+
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%s/%s?sslmode=disable", dbUser, dbPassword, dbHost, dbPort, dbName,
 	)
+}
+
+func GetDBConnectionPool() (*pgxpool.Pool, error) {
+	connectionString := GetDBConnectionString()
 
 	return Retry(func() (*pgxpool.Pool, error) {
-		return pgxpool.New(context.Background(), postgresDBURL)
+		return pgxpool.New(context.Background(), connectionString)
 	}, 5*time.Second, 10)
 }

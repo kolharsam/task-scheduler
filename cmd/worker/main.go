@@ -1,75 +1,42 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 	"strconv"
-	"time"
 
-	"github.com/google/uuid"
-	pb "github.com/kolharsam/task-scheduler/pkg/grpc-api"
-	"github.com/kolharsam/task-scheduler/pkg/lib"
 	"github.com/kolharsam/task-scheduler/pkg/worker"
-	"go.uber.org/zap"
-	"google.golang.org/grpc"
+)
+
+var (
+	host = flag.String("host", "", "--host localhost")
+	port = flag.Int64("port", 0, "--port 8081")
 )
 
 func main() {
+	flag.Parse()
+
 	leaderHost := os.Getenv("RING_LEADER_HOST")
 	leaderPort := os.Getenv("RING_LEADER_PORT")
-	var port int64
+	var ringLeaderPort uint32
 	if leaderPort == "" {
-		port = 8081
+		ringLeaderPort = 8081
 	} else {
 		portp, _ := strconv.Atoi(leaderPort)
-		port = int64(portp)
+		ringLeaderPort = uint32(portp)
 	}
 
-	logger, err := lib.GetLogger()
+	lis, server, workerCtx, err := worker.GetListenerAndServer(*host, uint32(*port), leaderHost, ringLeaderPort)
 	if err != nil {
-		log.Fatalf("failed to set up logger for worker service %v", err)
+		log.Fatalf("failed to setup ring-leader server %v", err)
 	}
 
-	var connection *grpc.ClientConn
-	maxRetries := 10
-	for i := 0; i < maxRetries; i++ {
-		connection, err = worker.SetupConnectionWithLeader(leaderHost, port)
-		if err == nil {
-			break
-		}
-		logger.Warn("Failed to connect with ring-leader. Retrying...",
-			zap.Error(err),
-			zap.Int("attempt", i+1),
-			zap.Int("max_retries", maxRetries),
-		)
-		time.Sleep(time.Second * 5) // Wait 5 seconds before retrying
-	}
+	workerCtx.ConnectWithLeader()
+	go workerCtx.HandleHeartbeats()
 
-	if err != nil || connection == nil {
-		logger.Fatal("Failed to connect with the ring-leader after multiple attempts", zap.Error(err))
-	}
-
-	logger.Info("connected with ring-leader")
-
-	defer connection.Close()
-
-	client := pb.NewSchedulerClient(connection)
-	serviceId, err := uuid.NewRandom()
+	err = server.Serve(lis)
 	if err != nil {
-		log.Fatalf("failed to set up worker_id [%v]", err)
-	}
-
-	workerContext := &worker.WorkerContext{
-		RingLeaderClient: client,
-		Logger:           logger,
-		ServiceId:        serviceId,
-	}
-
-	go workerContext.ManageHeartBeats()
-	err = workerContext.RunWorker()
-	if err != nil {
-		logger.Fatal("error has occurred while running worker",
-			zap.Error(err),
-			zap.String("worker_id", serviceId.String()))
+		log.Fatalf("failure at ring-leader server at [%s:%d]", *host, *port)
 	}
 }

@@ -2,18 +2,26 @@ syntax = "proto3";
 
 option go_package = "github.com/kolharsam/task-scheduler/pkg/grpc-api";
 
-service Scheduler {
-    // client to server stream
-    rpc HeartBeat (stream HeartbeatRequest) returns (HeartbeatResponse){}
-    // server to client stream
-    rpc RunTask(TaskReadyRequest) returns (stream TaskRequest){}
-    // client events to server
-    rpc ReadTaskUpdates(stream TaskUpdate) returns (TaskCompleteResponse){}
+service RingLeader {
+    rpc Connect(ConnectRequest) returns (ConnectAck){}
+    rpc Hearbeat(stream HeartbeatFromWorker) returns (stream HeartbeatFromLeader){}
 }
 
-message TaskReadyRequest {
-    string timestamp = 2;
-    string serverId = 3;
+service Worker {
+    rpc RunTask(TaskRequest) returns (stream TaskUpdate){}
+}
+
+message ConnectRequest {
+    string serviceId = 1;
+    string serviceHost = 2;
+    uint32 port = 3;
+    string timeStamp = 4;
+}
+
+message ConnectAck {
+    string host = 1;
+    uint32 port = 2;
+    string timeStamp = 3;
 }
 
 message TaskUpdate {
@@ -21,11 +29,8 @@ message TaskUpdate {
     string taskId = 2;
     TaskState state = 3;
     string errorDetails = 4;
-}
-
-message TaskCompleteResponse {
-    string timestamp = 1;
-}   
+    string commandResult = 5;
+}  
 
 message TaskRequest {
     string command = 2;
@@ -33,19 +38,25 @@ message TaskRequest {
     string requestTime = 3;
 } 
 
-message HeartbeatRequest {
+message HeartbeatFromWorker {
     string serviceId = 1;
-    string heartBeatTimestamp = 3;
+    string host = 2;
+    uint32 port = 3;
+    string timestamp = 4;
 };
 
-message HeartbeatResponse {
-    string serviceId = 1;
-    string sentTimestamp = 2;
+message HeartbeatFromLeader {
+    LeaderStatus leaderStatus = 1;
+    string timestamp = 2;
 };
+
+enum LeaderStatus {
+    ACTIVE = 0;
+    ERRORED = 1;
+}
 
 enum TaskState {
-    INIT = 0;
-    RUNNING = 1;
-    SUCCESS = 2;
-    ERROR = 3;
+    RUNNING = 0;
+    SUCCESS = 1;
+    ERROR = 2;
 }
