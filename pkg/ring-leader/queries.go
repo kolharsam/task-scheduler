@@ -12,9 +12,9 @@ const (
 	`
 
 	UPDATE_WORKER_LIVE_STATUS string = `
-		INSERT INTO "public"."live_workers" (service_id, status, port, host) 
-		VALUES (@serviceId, @workerStatus, @port, @host) ON CONFLICT (service_id)
-		DO UPDATE SET status = @workerStatus;
+		INSERT INTO "public"."live_workers" (service_id, status, port, host, connected_at) 
+		VALUES (@serviceId, @workerStatus, @port, @host, @connectedAt) ON CONFLICT (host, port)
+		DO UPDATE SET status = @workerStatus, connected_at = @connectedAt, service_id = @serviceId;
 	`
 
 	CHECK_CURRENT_TASK_STATUS string = `

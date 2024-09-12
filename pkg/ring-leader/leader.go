@@ -32,31 +32,41 @@ type taskWorkerInfo struct {
 }
 
 type taskWorkers struct {
-	workers *omap.OrderedMap[workerId, taskWorkerInfo]
+	mtx     sync.RWMutex
+	workers *omap.OrderedMap[workerId, *taskWorkerInfo]
 	next    uint32
 }
 
+// nextWorkerForTask distributes the tasks amongst the connected workers
+// by using the round-robin algorithm. The omap isn't the best data structure
+// to get this done efficiently. Improvements will be made in the future versions
 func (ts *taskWorkers) nextWorkerForTask() *taskWorkerInfo {
+	ts.mtx.Lock()
 	n := atomic.AddUint32(&ts.next, 1)
+	ts.mtx.Unlock()
 
 	if int(n) > ts.workers.Len() {
+		ts.mtx.Lock()
 		atomic.StoreUint32(&ts.next, 1)
+		ts.mtx.Unlock()
 		n = 1
 	}
 
-	var workers []*taskWorkerInfo
+	nxtWorkerIndex := (int(n) - 1) % ts.workers.Len()
 
+	iter := 0
 	for el := ts.workers.Front(); el != nil; el = el.Next() {
-		workers = append(workers, &el.Value)
+		if iter == nxtWorkerIndex {
+			return el.Value
+		}
+		iter++
 	}
-
-	return workers[(int(n)-1)%len(workers)]
+	return nil
 }
 
 type ringLeaderServer struct {
 	pb.UnimplementedRingLeaderServer
 	db            *pgxpool.Pool
-	mtx           sync.RWMutex
 	activeServers *taskWorkers
 	logger        *zap.Logger
 	leaderHost    string
@@ -79,7 +89,7 @@ func (tsi *taskWorkerInfo) updateHeartbeatTimestamp(timeStamp string) error {
 	return nil
 }
 
-func (ts taskWorkers) addNewService(connectRequest connectionRequest) error {
+func (ts *taskWorkers) addNewService(connectRequest connectionRequest) error {
 	tm, err := time.Parse(time.RFC3339, connectRequest.timeStamp)
 
 	if err != nil {
@@ -93,7 +103,7 @@ func (ts taskWorkers) addNewService(connectRequest connectionRequest) error {
 		LastHeartBeat: tm,
 	}
 
-	ts.workers.Set(connectRequest.serviceId, tsi)
+	ts.workers.Set(connectRequest.serviceId, &tsi)
 
 	return nil
 }
@@ -111,23 +121,22 @@ func newWorkerServiceClient(host string, port uint32) (pb.WorkerClient, error) {
 	return pb.NewWorkerClient(conn), nil
 }
 
-func (ts taskWorkers) updateServiceHeartbeat(serviceId, timestamp string) error {
+func (ts *taskWorkers) updateServiceHeartbeat(serviceId, timestamp string) error {
 	if taskWorker, ok := ts.workers.Get(serviceId); ok {
-		err := taskWorker.updateHeartbeatTimestamp(timestamp)
-		if err != nil {
+		if err := taskWorker.updateHeartbeatTimestamp(timestamp); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (ts taskWorkers) removeService(serviceId string) *taskWorkerInfo {
+func (ts *taskWorkers) removeService(serviceId string) *taskWorkerInfo {
 	val, ok := ts.workers.Get(serviceId)
 	if !ok {
 		return nil
 	}
 	ts.workers.Delete(serviceId)
-	return &val
+	return val
 }
 
 // TODO: make sure when and if leader goes down...the workers are fault tolerant (right now they just crash)
@@ -135,34 +144,35 @@ func (rls *ringLeaderServer) Hearbeat(stream grpc.BidiStreamingServer[pb.Heartbe
 	for {
 		beat, err := stream.Recv()
 		if err == io.EOF {
-			rls.mtx.Lock()
+			rls.activeServers.mtx.Lock()
 			rls.activeServers.removeService(beat.ServiceId)
-			rls.mtx.Unlock()
+			rls.activeServers.mtx.Unlock()
 			return nil
 		}
 
 		if err != nil {
-			rls.logger.Error("failed to read heartbeat from worker", zap.Error(err))
+			rls.logger.Error("failed to receive heartbeat from worker...")
 			return err
 		}
 
-		workerId := beat.GetServiceId()
-		beatTime := beat.GetTimestamp()
+		workerId := beat.ServiceId
+		beatTime := beat.Timestamp
 
-		rls.mtx.Lock()
+		rls.activeServers.mtx.Lock()
 		rls.activeServers.updateServiceHeartbeat(workerId, beatTime)
-		rls.mtx.Unlock()
+		rls.activeServers.mtx.Unlock()
 
 		_, err = rls.db.Exec(context.Background(), UPDATE_WORKER_LIVE_STATUS, pgx.NamedArgs{
 			"serviceId":    beat.ServiceId,
-			"workerStatus": "RUNNING",
+			"workerStatus": lib.RUNNING_WORKER_STATUS,
 			"host":         beat.Host,
 			"port":         beat.Port,
+			"connectedAt":  time.Now().Format(time.RFC3339),
 		})
 
 		if err != nil {
 			rls.logger.Warn("failed to update the live status of db...",
-				zap.String("worker_status", "RUNNING"),
+				zap.String("worker_status", lib.RUNNING_WORKER_STATUS),
 				zap.String("worker_id", beat.ServiceId),
 				zap.Error(err))
 		}
@@ -187,7 +197,7 @@ func (rls *ringLeaderServer) CheckHearbeats() {
 			continue
 		}
 
-		rls.mtx.RLock()
+		rls.activeServers.mtx.RLock()
 
 		for el := rls.activeServers.workers.Front(); el != nil; el = el.Next() {
 			if time.Since(el.Value.LastHeartBeat) >= (time.Second * 15) {
@@ -195,7 +205,7 @@ func (rls *ringLeaderServer) CheckHearbeats() {
 					zap.String("worker_id", el.Value.ServiceId))
 				_, err := rls.db.Exec(context.Background(), UPDATE_WORKER_LIVE_STATUS, pgx.NamedArgs{
 					"serviceId":    el.Value.ServiceId,
-					"workerStatus": "ERRORED",
+					"workerStatus": lib.ERRORED_WORKER_STATUS,
 					"host":         el.Value.ServiceHost,
 					"port":         el.Value.Port,
 				})
@@ -206,7 +216,7 @@ func (rls *ringLeaderServer) CheckHearbeats() {
 			}
 		}
 
-		rls.mtx.RUnlock()
+		rls.activeServers.mtx.RUnlock()
 
 	}
 }
@@ -219,9 +229,9 @@ func (rls *ringLeaderServer) Connect(ctx context.Context, connReq *pb.ConnectReq
 		timeStamp:   connReq.GetTimeStamp(),
 	}
 
-	rls.mtx.Lock()
+	rls.activeServers.mtx.Lock()
 	err := rls.activeServers.addNewService(connectRequest)
-	rls.mtx.Unlock()
+	rls.activeServers.mtx.Unlock()
 
 	if err != nil {
 		return nil, err
@@ -229,9 +239,10 @@ func (rls *ringLeaderServer) Connect(ctx context.Context, connReq *pb.ConnectReq
 
 	_, err = rls.db.Exec(context.Background(), UPDATE_WORKER_LIVE_STATUS, pgx.NamedArgs{
 		"serviceId":    connectRequest.serviceId,
-		"workerStatus": "RUNNING",
+		"workerStatus": lib.RUNNING_WORKER_STATUS,
 		"host":         connectRequest.serviceHost,
 		"port":         connectRequest.port,
+		"connected_at": time.Now().Format(time.RFC3339),
 	})
 
 	if err != nil {
@@ -240,7 +251,11 @@ func (rls *ringLeaderServer) Connect(ctx context.Context, connReq *pb.ConnectReq
 		rls.logger.Warn("failed to write about new worker to db....", zap.Error(err))
 	}
 
-	rls.logger.Info("connected with new worker...", zap.Any("worker_info", connectRequest))
+	rls.logger.Info("connected with new worker...",
+		zap.String("worker_host", connectRequest.serviceHost),
+		zap.Uint32("worker_port", connectRequest.port),
+		zap.String("worker_id", connectRequest.serviceId),
+	)
 
 	return &pb.ConnectAck{
 		Host:      rls.leaderHost,
@@ -250,35 +265,38 @@ func (rls *ringLeaderServer) Connect(ctx context.Context, connReq *pb.ConnectReq
 }
 
 func (rls *ringLeaderServer) handleTask(taskWorker *taskWorkerInfo, task *lib.Task) {
-	if taskWorker == nil && task == nil {
-		rls.logger.Warn("task could not be handled")
+	if taskWorker == nil || task == nil {
+		rls.logger.Warn("task could not be handled...")
 		return
 	}
 
-	if taskWorker == nil {
-		rls.logger.Warn("task being tossed back...no worker provided",
-			zap.String("task_id", task.TaskID.String()))
-		return
-	}
-
-	if task == nil {
-		rls.logger.Warn("task is null...", zap.String("worker_id", taskWorker.ServiceId))
-		return
-	}
-
-	row := rls.db.QueryRow(context.Background(), CHECK_CURRENT_TASK_STATUS, pgx.NamedArgs{
+	rows, err := rls.db.Query(context.Background(), CHECK_CURRENT_TASK_STATUS, pgx.NamedArgs{
 		"taskId": task.TaskID.String(),
 	})
 
-	var currentTaskInfo lib.Task
-	err := row.Scan(&currentTaskInfo)
-
-	if err == pgx.ErrNoRows {
+	if err != nil {
+		rls.logger.Warn("failed to fetch the latest info on the given task...",
+			zap.Error(err),
+			zap.String("task_id", task.TaskID.String()),
+			zap.String("worker_id", taskWorker.ServiceId),
+		)
 		return
 	}
 
+	dbTask, err := pgx.CollectRows(rows, pgx.RowToStructByName[lib.Task])
+
 	if err != nil {
-		rls.logger.Warn("")
+		rls.logger.Warn("failed to convert the latest info on the given task...",
+			zap.Error(err),
+			zap.String("task_id", task.TaskID.String()),
+			zap.String("worker_id", taskWorker.ServiceId),
+		)
+	}
+
+	if dbTask[0].Status != task.Status {
+		rls.logger.Warn("task has a different status than status in DB...",
+			zap.String("task_id", task.TaskID.String()),
+		)
 		return
 	}
 
@@ -392,6 +410,8 @@ func (rls *ringLeaderServer) FetchTasks(taskQueue chan<- *lib.Task) {
 			continue
 		}
 
+		taskRows.Close()
+
 		for _, task := range tasks {
 			taskQueue <- task
 		}
@@ -410,7 +430,7 @@ func (rls *ringLeaderServer) RunTasks(taskQueue <-chan *lib.Task) {
 func newServer(host string, port uint32, db *pgxpool.Pool, logger *zap.Logger) *ringLeaderServer {
 	s := &ringLeaderServer{
 		activeServers: &taskWorkers{
-			workers: omap.NewOrderedMap[string, taskWorkerInfo](),
+			workers: omap.NewOrderedMap[string, *taskWorkerInfo](),
 		},
 		db:         db,
 		logger:     logger,
@@ -442,7 +462,7 @@ func GetListenerAndServer(host string, port uint32) (net.Listener, *grpc.Server,
 		if maxRetries <= 0 {
 			break
 		}
-		time.Sleep(4 * time.Second)
+		time.Sleep(4 * time.Second) // TODO: make this configureable
 		logger.Info("trying to connect to db...",
 			zap.Int("max_retries", maxRetries),
 			zap.Error(err),

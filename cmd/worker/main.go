@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	host = flag.String("host", "", "--host localhost")
-	port = flag.Int64("port", 0, "--port 8081")
+	host = flag.String("host", "localhost", "--host localhost")
+	port = flag.Int64("port", 9001, "--port 8081")
 )
 
 func main() {

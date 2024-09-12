@@ -38,10 +38,11 @@ type LiveWorkers struct {
 	// NOTE: Status is one of
 	// 'RUNNING',
 	// 'ERRORED',
-	Port      uint32    `json:"port"`
-	Host      string    `json:"host"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Port        uint32    `json:"port"`
+	Host        string    `json:"host"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ConnectedAt time.Time `json:"connected_at"`
 }
 
 type WorkerStatus = string

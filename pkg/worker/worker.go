@@ -8,6 +8,7 @@ import (
 	"net"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -26,18 +27,18 @@ type leaderInfo struct {
 
 type workerContext struct {
 	pb.UnimplementedWorkerServer
-	logger           *zap.Logger
-	ringLeaderClient pb.RingLeaderClient
-	serviceId        string
-	workerHost       string
-	workerPort       uint32
-	leaderInfo       leaderInfo
+	logger              *zap.Logger
+	serviceId           string
+	workerHost          string
+	workerPort          uint32
+	leaderInfo          leaderInfo
+	isConnectedToLeader bool
+	mu                  sync.Mutex
 }
 
 func setupConnectionWithLeader(host string, port uint32) (pb.RingLeaderClient, error) {
 	ringLeaderTarget := fmt.Sprintf("%s:%d", host, port)
-	conn, err := grpc.NewClient(ringLeaderTarget,
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(ringLeaderTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to ring leader at %s: %w", ringLeaderTarget, err)
 	}
@@ -102,85 +103,120 @@ func (wc *workerContext) RunTask(taskRequest *pb.TaskRequest, stream grpc.Server
 }
 
 func (wc *workerContext) ConnectWithLeader() {
-	ack, err := wc.ringLeaderClient.Connect(context.Background(), &pb.ConnectRequest{
-		ServiceId:   wc.serviceId,
-		ServiceHost: wc.workerHost,
-		Port:        wc.workerPort,
-		TimeStamp:   time.Now().Format(time.RFC3339),
-	})
+	for {
+		ringLeaderClient, err := setupConnectionWithLeader(wc.leaderInfo.host, wc.leaderInfo.port)
 
-	if err != nil {
-		wc.logger.Fatal("failed to connect with ring-leader", zap.Error(err))
-	}
-
-	wc.logger.Info("connected with leader...", zap.Any("ring-leader-host", ack.GetHost()))
-}
-
-func (wc *workerContext) HandleHeartbeats() {
-	stream, err := wc.ringLeaderClient.Hearbeat(context.Background())
-	defer stream.CloseSend()
-
-	if err != nil {
-		wc.logger.Fatal("failed to set up heartbeats with leader...", zap.Error(err))
-	}
-
-	waitc := make(chan struct{})
-
-	go func() {
-		for {
-			beat, err := stream.Recv()
-			if err == io.EOF {
-				close(waitc)
-				return
-			}
-			if err != nil {
-				wc.logger.Warn("failed to recv ack for heartbeat",
-					zap.Error(err),
-					zap.Any("worker_info", map[string]interface{}{
-						"worker_id":   wc.serviceId,
-						"worker_port": wc.workerPort,
-						"leader_info": wc.leaderInfo,
-					}))
-			}
-
-			if beat.LeaderStatus != pb.LeaderStatus_ACTIVE {
-				wc.logger.Warn("there seems to be an issue at the leader...", zap.Any("worker_id", wc.serviceId))
-			}
+		if err != nil {
+			wc.logger.Warn("failed to set up client to connect with leader...", zap.Error(err))
+			time.Sleep(5 * time.Second) // TODO: make this sleep time configurable
+			continue
 		}
-	}()
 
-	ticker := time.NewTicker(time.Second * 5)
-	for range ticker.C {
-		err := stream.Send(&pb.HeartbeatFromWorker{
-			ServiceId: wc.serviceId,
-			Timestamp: time.Now().Format(time.RFC3339),
-			Host:      wc.workerHost,
-			Port:      wc.workerPort,
+		ack, err := ringLeaderClient.Connect(context.Background(), &pb.ConnectRequest{
+			ServiceId:   wc.serviceId,
+			ServiceHost: wc.workerHost,
+			Port:        wc.workerPort,
+			TimeStamp:   time.Now().Format(time.RFC3339),
 		})
 
 		if err != nil {
-			wc.logger.Warn("failed to send a heartbeat to leader...",
-				zap.String("worker_id", wc.serviceId),
-				zap.Error(err))
+			wc.logger.Warn("failed to get ack from ring-leader",
+				zap.Error(err),
+				zap.String("ring-leader-host", wc.leaderInfo.host),
+				zap.Uint32("ring-leader-port", wc.leaderInfo.port),
+			)
+			time.Sleep(5 * time.Second)
+			continue
 		}
-	}
 
-	<-waitc
+		wc.logger.Info("connected with leader...", zap.Any("ring-leader-host", ack.GetHost()))
+		wc.mu.Lock()
+		wc.isConnectedToLeader = true
+		wc.mu.Unlock()
+		return
+	}
 }
 
-func newServer(logger *zap.Logger, leaderClient pb.RingLeaderClient, serviceId string, host string, port uint32, leaderHost string, leaderPort uint32) *workerContext {
-	s := &workerContext{
-		logger:           logger,
-		ringLeaderClient: leaderClient,
-		serviceId:        serviceId,
-		workerHost:       host,
-		workerPort:       port,
-		leaderInfo: leaderInfo{
-			host: leaderHost,
-			port: leaderPort,
-		},
+func (wc *workerContext) HandleHeartbeats() {
+	backoff := time.Second
+
+	for {
+		ringLeaderClient, err := setupConnectionWithLeader(wc.leaderInfo.host, wc.leaderInfo.port)
+		if err != nil {
+			wc.logger.Warn("failed to set up client to connect with leader...", zap.Error(err))
+			time.Sleep(backoff)
+			backoff = min(backoff*2, time.Minute)
+		}
+
+		stream, err := ringLeaderClient.Hearbeat(context.Background())
+		if err != nil {
+			wc.logger.Warn("failed to set up heartbeats with leader...", zap.Error(err))
+			time.Sleep(backoff)
+			backoff = min(backoff*2, time.Minute)
+			continue
+		}
+
+		backoff = time.Second // Reset time if we connect properly
+
+		go func() {
+			for {
+				beat, err := stream.Recv()
+				if err == io.EOF {
+					wc.logger.Warn("heartbeat stream closed by leader")
+					return
+				}
+				if err != nil {
+					wc.logger.Warn("failed to recv ack for heartbeat",
+						zap.Error(err),
+						zap.Any("worker_info", map[string]interface{}{
+							"worker_id":   wc.serviceId,
+							"worker_port": wc.workerPort,
+							"leader_info": wc.leaderInfo,
+						}))
+					return
+				}
+
+				if beat.LeaderStatus != pb.LeaderStatus_ACTIVE {
+					wc.logger.Warn("there seems to be an issue at the leader...", zap.Any("worker_id", wc.serviceId))
+				}
+			}
+		}()
+
+		ticker := time.NewTicker(time.Second * 2) // TODO: make this configurable
+		for range ticker.C {
+			err := stream.Send(&pb.HeartbeatFromWorker{
+				ServiceId: wc.serviceId,
+				Timestamp: time.Now().Format(time.RFC3339),
+				Host:      wc.workerHost,
+				Port:      wc.workerPort,
+			})
+
+			if err != nil {
+				wc.logger.Warn("failed to send a heartbeat to leader...",
+					zap.String("worker_id", wc.serviceId),
+					zap.Error(err))
+				wc.mu.Lock()
+				wc.isConnectedToLeader = false
+				wc.mu.Unlock()
+				break
+			}
+		}
+
+		// NOTE: try to re-establish the connection
+		// with the leader
+		wc.ConnectWithLeader()
 	}
-	return s
+}
+
+func newServer(logger *zap.Logger, serviceId string, host string, port uint32, leaderHost string, leaderPort uint32) *workerContext {
+	return &workerContext{
+		logger:              logger,
+		serviceId:           serviceId,
+		workerHost:          host,
+		workerPort:          port,
+		leaderInfo:          leaderInfo{host: leaderHost, port: leaderPort},
+		isConnectedToLeader: false,
+	}
 }
 
 func GetListenerAndServer(host string, port uint32, ringLeaderHost string, ringLeaderPort uint32) (net.Listener, *grpc.Server, *workerContext, error) {
@@ -190,7 +226,6 @@ func GetListenerAndServer(host string, port uint32, ringLeaderHost string, ringL
 	}
 
 	logger, err := lib.GetLogger()
-
 	if err != nil {
 		log.Fatalf("failed to initiate logger for worker [%v]", err)
 		return nil, nil, nil, err
@@ -200,12 +235,7 @@ func GetListenerAndServer(host string, port uint32, ringLeaderHost string, ringL
 
 	grpcServer := grpc.NewServer()
 
-	leaderClient, err := setupConnectionWithLeader(ringLeaderHost, ringLeaderPort)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	workerCtx := newServer(logger, leaderClient, serviceId.String(), host, port, ringLeaderHost, ringLeaderPort)
+	workerCtx := newServer(logger, serviceId.String(), host, port, ringLeaderHost, ringLeaderPort)
 
 	pb.RegisterWorkerServer(grpcServer, workerCtx)
 

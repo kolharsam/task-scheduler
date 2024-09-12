@@ -85,7 +85,9 @@ CREATE TABLE live_workers(
     port bigint not null,
     "status" worker_status NOT NULL DEFAULT 'RUNNING',
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    connected_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (host, port)
 );
 
 CREATE TRIGGER live_workers_updated_at BEFORE UPDATE ON "live_workers"

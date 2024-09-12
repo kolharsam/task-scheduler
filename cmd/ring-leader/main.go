@@ -22,7 +22,7 @@ func main() {
 
 	go serverCtx.CheckHearbeats()
 
-	taskQueue := make(chan *lib.Task, 1024)
+	taskQueue := make(chan *lib.Task, 1024) // TODO: make size of this configurable
 	go serverCtx.FetchTasks(taskQueue)
 	go serverCtx.RunTasks(taskQueue)
 
