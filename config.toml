@@ -1,0 +1,16 @@
+title = "task_scheduler"
+
+[ring-leader]
+task_queue_size = 1024
+
+[ring-leader.connections]
+max_retries = 10
+time_between_retries = 4
+
+[worker]
+heartbeat_interval = 2
+backoff_max = 2 # In minutes
+
+[worker.connections]
+time_between_retries = 4
+max_retries = 10
