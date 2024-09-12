@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/google/uuid"
+	"github.com/kolharsam/task-scheduler/pkg/config"
 	pb "github.com/kolharsam/task-scheduler/pkg/grpc-api"
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 )
@@ -34,6 +35,7 @@ type workerContext struct {
 	leaderInfo          leaderInfo
 	isConnectedToLeader bool
 	mu                  sync.Mutex
+	appConfig           *config.TaskSchedulerConfig
 }
 
 func setupConnectionWithLeader(host string, port uint32) (pb.RingLeaderClient, error) {
@@ -103,12 +105,16 @@ func (wc *workerContext) RunTask(taskRequest *pb.TaskRequest, stream grpc.Server
 }
 
 func (wc *workerContext) ConnectWithLeader() {
+	sleepNumber := time.Duration(
+		wc.appConfig.WorkerConfig.Connections.TimeBetweenRetries,
+	)
+
 	for {
 		ringLeaderClient, err := setupConnectionWithLeader(wc.leaderInfo.host, wc.leaderInfo.port)
 
 		if err != nil {
 			wc.logger.Warn("failed to set up client to connect with leader...", zap.Error(err))
-			time.Sleep(5 * time.Second) // TODO: make this sleep time configurable
+			time.Sleep(sleepNumber * time.Second)
 			continue
 		}
 
@@ -125,7 +131,7 @@ func (wc *workerContext) ConnectWithLeader() {
 				zap.String("ring-leader-host", wc.leaderInfo.host),
 				zap.Uint32("ring-leader-port", wc.leaderInfo.port),
 			)
-			time.Sleep(5 * time.Second)
+			time.Sleep(sleepNumber * time.Second)
 			continue
 		}
 
@@ -139,20 +145,21 @@ func (wc *workerContext) ConnectWithLeader() {
 
 func (wc *workerContext) HandleHeartbeats() {
 	backoff := time.Second
+	maxBackoff := time.Duration(wc.appConfig.WorkerConfig.BackoffMax) * time.Minute
 
 	for {
 		ringLeaderClient, err := setupConnectionWithLeader(wc.leaderInfo.host, wc.leaderInfo.port)
 		if err != nil {
 			wc.logger.Warn("failed to set up client to connect with leader...", zap.Error(err))
 			time.Sleep(backoff)
-			backoff = min(backoff*2, time.Minute)
+			backoff = min(backoff*2, maxBackoff)
 		}
 
 		stream, err := ringLeaderClient.Hearbeat(context.Background())
 		if err != nil {
 			wc.logger.Warn("failed to set up heartbeats with leader...", zap.Error(err))
 			time.Sleep(backoff)
-			backoff = min(backoff*2, time.Minute)
+			backoff = min(backoff*2, maxBackoff)
 			continue
 		}
 
@@ -182,7 +189,11 @@ func (wc *workerContext) HandleHeartbeats() {
 			}
 		}()
 
-		ticker := time.NewTicker(time.Second * 2) // TODO: make this configurable
+		ticker := time.NewTicker(
+			time.Duration(wc.appConfig.WorkerConfig.HeartbeatInterval) * time.Second,
+		)
+		defer ticker.Stop()
+
 		for range ticker.C {
 			err := stream.Send(&pb.HeartbeatFromWorker{
 				ServiceId: wc.serviceId,
@@ -202,13 +213,12 @@ func (wc *workerContext) HandleHeartbeats() {
 			}
 		}
 
-		// NOTE: try to re-establish the connection
-		// with the leader
+		// NOTE: try to re-establish the connection with the leader
 		wc.ConnectWithLeader()
 	}
 }
 
-func newServer(logger *zap.Logger, serviceId string, host string, port uint32, leaderHost string, leaderPort uint32) *workerContext {
+func newServer(logger *zap.Logger, serviceId string, host string, port uint32, leaderHost string, leaderPort uint32, config *config.TaskSchedulerConfig) *workerContext {
 	return &workerContext{
 		logger:              logger,
 		serviceId:           serviceId,
@@ -216,10 +226,11 @@ func newServer(logger *zap.Logger, serviceId string, host string, port uint32, l
 		workerPort:          port,
 		leaderInfo:          leaderInfo{host: leaderHost, port: leaderPort},
 		isConnectedToLeader: false,
+		appConfig:           config,
 	}
 }
 
-func GetListenerAndServer(host string, port uint32, ringLeaderHost string, ringLeaderPort uint32) (net.Listener, *grpc.Server, *workerContext, error) {
+func GetListenerAndServer(host string, port uint32, ringLeaderHost string, ringLeaderPort uint32, config *config.TaskSchedulerConfig) (net.Listener, *grpc.Server, *workerContext, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
 		return nil, nil, nil, err
@@ -235,7 +246,7 @@ func GetListenerAndServer(host string, port uint32, ringLeaderHost string, ringL
 
 	grpcServer := grpc.NewServer()
 
-	workerCtx := newServer(logger, serviceId.String(), host, port, ringLeaderHost, ringLeaderPort)
+	workerCtx := newServer(logger, serviceId.String(), host, port, ringLeaderHost, ringLeaderPort, config)
 
 	pb.RegisterWorkerServer(grpcServer, workerCtx)
 

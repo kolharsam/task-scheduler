@@ -18,6 +18,7 @@ import (
 	omap "github.com/elliotchance/orderedmap/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kolharsam/task-scheduler/pkg/config"
 	pb "github.com/kolharsam/task-scheduler/pkg/grpc-api"
 	"github.com/kolharsam/task-scheduler/pkg/lib"
 )
@@ -71,6 +72,7 @@ type ringLeaderServer struct {
 	logger        *zap.Logger
 	leaderHost    string
 	leaderPort    uint32
+	appConfig     *config.TaskSchedulerConfig
 }
 
 type connectionRequest struct {
@@ -139,7 +141,6 @@ func (ts *taskWorkers) removeService(serviceId string) *taskWorkerInfo {
 	return val
 }
 
-// TODO: make sure when and if leader goes down...the workers are fault tolerant (right now they just crash)
 func (rls *ringLeaderServer) Hearbeat(stream grpc.BidiStreamingServer[pb.HeartbeatFromWorker, pb.HeartbeatFromLeader]) error {
 	for {
 		beat, err := stream.Recv()
@@ -427,7 +428,7 @@ func (rls *ringLeaderServer) RunTasks(taskQueue <-chan *lib.Task) {
 	}
 }
 
-func newServer(host string, port uint32, db *pgxpool.Pool, logger *zap.Logger) *ringLeaderServer {
+func newServer(host string, port uint32, db *pgxpool.Pool, logger *zap.Logger, config *config.TaskSchedulerConfig) *ringLeaderServer {
 	s := &ringLeaderServer{
 		activeServers: &taskWorkers{
 			workers: omap.NewOrderedMap[string, *taskWorkerInfo](),
@@ -436,11 +437,12 @@ func newServer(host string, port uint32, db *pgxpool.Pool, logger *zap.Logger) *
 		logger:     logger,
 		leaderHost: host,
 		leaderPort: port,
+		appConfig:  config,
 	}
 	return s
 }
 
-func GetListenerAndServer(host string, port uint32) (net.Listener, *grpc.Server, *ringLeaderServer, error) {
+func GetListenerAndServer(host string, port uint32, config *config.TaskSchedulerConfig) (net.Listener, *grpc.Server, *ringLeaderServer, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
 		return nil, nil, nil, err
@@ -454,7 +456,7 @@ func GetListenerAndServer(host string, port uint32) (net.Listener, *grpc.Server,
 	}
 
 	connectionString := lib.GetDBConnectionString()
-	maxRetries := 10
+	maxRetries := config.RingLeaderConfig.Connections.MaxRetries
 	contextDB := context.Background()
 	db, err := pgxpool.New(contextDB, connectionString)
 
@@ -462,7 +464,9 @@ func GetListenerAndServer(host string, port uint32) (net.Listener, *grpc.Server,
 		if maxRetries <= 0 {
 			break
 		}
-		time.Sleep(4 * time.Second) // TODO: make this configureable
+		time.Sleep(
+			time.Duration(config.RingLeaderConfig.Connections.TimeBetweenRetries) * time.Second,
+		)
 		logger.Info("trying to connect to db...",
 			zap.Int("max_retries", maxRetries),
 			zap.Error(err),
@@ -480,13 +484,15 @@ func GetListenerAndServer(host string, port uint32) (net.Listener, *grpc.Server,
 
 	ctx := context.Background()
 	err = db.Ping(ctx)
-	maxRetries = 10
+	maxRetries = config.RingLeaderConfig.Connections.MaxRetries
 
 	for err != nil {
 		if maxRetries <= 0 {
 			break
 		}
-		time.Sleep(4 * time.Second) // TODO: make sure all these types of timeouts are configurable...
+		time.Sleep(
+			time.Duration(config.RingLeaderConfig.Connections.TimeBetweenRetries) * time.Second,
+		)
 		logger.Info("performing ping on db...", zap.Int("max_retries", maxRetries), zap.Error(err))
 		err = db.Ping(ctx)
 		maxRetries--
@@ -499,7 +505,7 @@ func GetListenerAndServer(host string, port uint32) (net.Listener, *grpc.Server,
 	}
 
 	grpcServer := grpc.NewServer()
-	serverCtx := newServer(host, port, db, logger)
+	serverCtx := newServer(host, port, db, logger, config)
 	pb.RegisterRingLeaderServer(grpcServer, serverCtx)
 	return listener, grpcServer, serverCtx, nil
 }

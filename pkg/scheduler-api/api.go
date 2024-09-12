@@ -2,6 +2,7 @@ package schedulerapi
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"time"
@@ -12,6 +13,10 @@ import (
 	constants "github.com/kolharsam/task-scheduler/pkg/scheduler-api/common"
 	"github.com/kolharsam/task-scheduler/pkg/scheduler-api/handlers"
 	"go.uber.org/zap"
+)
+
+var (
+	retryNumber = flag.Int64("retry", 5, "--retry 5 [time between retries to connect with db]")
 )
 
 var (
@@ -49,7 +54,7 @@ func Run(serverPort string) {
 			break
 		}
 		logger.Warn("failed to connect with database...retrying in 5 seconds", zap.Error(err))
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * time.Duration(*retryNumber))
 		err = db.Ping(ctx)
 		maxRetries--
 	}
