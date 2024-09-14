@@ -341,6 +341,9 @@ func (rls *ringLeaderServer) handleTask(taskWorker *taskWorkerInfo, task *lib.Ta
 				zap.String("task_id", task.TaskID.String()),
 				zap.Error(err),
 			)
+			time.Sleep(
+				time.Duration(rls.appConfig.RingLeaderConfig.Connections.TimeBetweenRetries) * time.Second,
+			)
 			// FIXME: this might end up retrying things and we might
 			// want that to happen only a certain number of times
 			continue

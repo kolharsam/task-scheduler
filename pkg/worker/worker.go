@@ -63,7 +63,8 @@ func (wc *workerContext) RunTask(taskRequest *pb.TaskRequest, stream grpc.Server
 		return err
 	}
 
-	cmd := exec.Command(taskRequest.Command)
+	cmdSplit := strings.Split(taskRequest.Command, " ")
+	cmd := exec.Command(cmdSplit[0], cmdSplit[1:]...)
 	var stderr strings.Builder
 	var stdout strings.Builder
 	cmd.Stdout = &stdout
