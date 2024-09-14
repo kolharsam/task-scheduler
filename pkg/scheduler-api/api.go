@@ -20,11 +20,26 @@ var (
 )
 
 var (
-	taskGetRoute string = fmt.Sprintf("%s/*task_id", constants.TaskRoute)
+	taskGetRoute      string = fmt.Sprintf("%s/*task_id", constants.TaskRoute)
+	taskEventGetRoute string = fmt.Sprintf("%s/*task_id", constants.TaskEventsRoute)
 )
 
 func Run(serverPort string) {
 	router := gin.Default()
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
 	v1 := router.Group(constants.APIVersion)
 
 	logger, err := lib.GetLogger()
@@ -70,10 +85,13 @@ func Run(serverPort string) {
 	}
 
 	v1.POST(constants.TaskRoute, apiCtx.TaskPostHandler)
+	v1.GET(constants.TaskRoute, apiCtx.TaskGetHandler)
 	v1.GET(taskGetRoute, apiCtx.TaskGetHandler)
 	v1.GET(constants.TaskEventsRoute, apiCtx.GetAllTaskEventsHandler)
+	v1.GET(taskEventGetRoute, apiCtx.GetAllTaskEventsHandler)
 	v1.GET(constants.HealthRoute, apiCtx.StatusHandler)
 
 	log.Default().Printf("starting scheuler-api on port[%s]...", serverPort)
+
 	router.Run(serverPort)
 }

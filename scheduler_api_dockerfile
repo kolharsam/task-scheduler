@@ -13,4 +13,4 @@ COPY .env .
 RUN go build -o scheduler-api main.go
 RUN chmod +x ./scheduler-api
 
-CMD ["./scheduler-api", "--port", "8080"]
+CMD ["./scheduler-api", "--port", "8081"]

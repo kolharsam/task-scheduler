@@ -41,7 +41,7 @@ type taskWorkers struct {
 // nextWorkerForTask distributes the tasks amongst the connected workers
 // by using the round-robin algorithm. The omap isn't the best data structure
 // to get this done efficiently. Improvements will be made in the future versions
-func (ts *taskWorkers) nextWorkerForTask() *taskWorkerInfo {
+func nextWorkerForTask(ts *taskWorkers) *taskWorkerInfo {
 	ts.mtx.Lock()
 	n := atomic.AddUint32(&ts.next, 1)
 	ts.mtx.Unlock()
@@ -364,10 +364,10 @@ func (rls *ringLeaderServer) handleTask(taskWorker *taskWorkerInfo, task *lib.Ta
 		}
 
 		updateArgs := pgx.NamedArgs{
-			"status":    taskUpdate.State.String(),
-			"taskId":    taskUpdate.TaskId,
-			"data":      dataBytes,
-			"worker_id": taskWorker.ServiceId,
+			"status":   taskUpdate.State.String(),
+			"taskId":   taskUpdate.TaskId,
+			"data":     dataBytes,
+			"workerId": taskWorker.ServiceId,
 		}
 
 		_, err = rls.db.Exec(context.Background(), INSERT_TASK_STATUS_UPDATE, updateArgs)
@@ -423,7 +423,7 @@ func (rls *ringLeaderServer) FetchTasks(taskQueue chan<- *lib.Task) {
 
 func (rls *ringLeaderServer) RunTasks(taskQueue <-chan *lib.Task) {
 	for task := range taskQueue {
-		taskWorkerInfo := rls.activeServers.nextWorkerForTask()
+		taskWorkerInfo := nextWorkerForTask(rls.activeServers)
 		go rls.handleTask(taskWorkerInfo, task)
 	}
 }

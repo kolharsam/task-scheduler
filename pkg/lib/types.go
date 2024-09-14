@@ -3,7 +3,6 @@ package lib
 import (
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
@@ -25,10 +24,10 @@ type TaskStatusUpdateLog struct {
 	// 'RUNNING',
 	// 'SUCCESS',
 	// 'FAILED'
-	Data      *gin.H    `json:"data"`
-	WorkerId  string    `json:"worker_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Data      map[string]interface{} `json:"data"`
+	WorkerId  *string                `json:"worker_id"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
 }
 
 type LiveWorkers struct {

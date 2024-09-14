@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -89,16 +88,7 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	var query string
 	var args pgx.NamedArgs
 
-	if err != nil && taskIdStr != "" {
-		err = errors.New("task_id must be provided or an incorrect one has been provided")
-		c.Errors = append(c.Errors, &gin.Error{Err: err})
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
-
-	if err != nil && taskIdStr == "" {
+	if err != nil {
 		query = common.GET_ALL_EVENTS
 		args = pgx.NamedArgs{}
 	} else {
@@ -113,7 +103,7 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	if err != nil {
 		c.Errors = append(c.Errors, &gin.Error{Err: err})
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Errorf("failed to fetch tasks from db [%s]", err.Error()),
+			"error": fmt.Errorf("failed to fetch tasks from db [%s]", err.Error()).Error(),
 		})
 		return
 	}
@@ -125,7 +115,7 @@ func (api *APIContext) GetAllTaskEventsHandler(c *gin.Context) {
 	if err != nil {
 		c.Errors = append(c.Errors, &gin.Error{Err: err})
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Errorf("failed to read rows[task_status_updates_log] from db [%s]", err.Error()),
+			"error": fmt.Errorf("failed to read rows[task_status_updates_log] from db [%s]", err.Error()).Error(),
 		})
 		return
 	}
